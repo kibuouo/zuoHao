@@ -310,8 +310,23 @@ function pushDebugFrame() {
     metrics: m
       ? {
           cva: m.cva,
+          forwardRatio: m.forwardRatio,
           earForward: m.earForward,
           chinForward: m.chinForward,
+          worldEarForward: m.worldEarForward,
+          headForwardDepth: m.headForwardDepth,
+          profileSide: m.profileSide,
+          nearIdx: m.nearIdx,
+          shoulderSource: m.shoulderSource,
+          shoulderIdx: m.shoulderIdx,
+          c7AnchorSource: m.c7AnchorSource,
+          points: {
+            ear: m.ear,
+            shoulder: m.shoulder,
+            c7: m.c7,
+            lSh: m.lSh,
+            rSh: m.rSh,
+          },
           trunkAngle: m.trunkAngle,
           headTilt: m.headTilt,
           shoulderSlope: m.shoulderSlope,
@@ -323,6 +338,8 @@ function pushDebugFrame() {
           slopeSource: m.slopeSource,
           leanSource: m.leanSource,
           view: m.view,
+          classified: m.classified,
+          sideScore: m.sideScore,
           facing: m.facing,
           headCollapsed: m.headCollapsed,
           headFused: !!state.lastFrame?.face,
@@ -464,8 +481,15 @@ function broadcast(analysis, present) {
         earForward: analysis.metrics.earForward,
         chinForward: analysis.metrics.chinForward,
         worldEarForward: analysis.metrics.worldEarForward,
+        headForwardDepth: analysis.metrics.headForwardDepth,
+        profileSide: analysis.metrics.profileSide,
+        nearIdx: analysis.metrics.nearIdx,
+        shoulderSource: analysis.metrics.shoulderSource,
+        shoulderIdx: analysis.metrics.shoulderIdx,
+        c7AnchorSource: analysis.metrics.c7AnchorSource,
         trunkAngle: analysis.metrics.trunkAngle,
         view: analysis.metrics.view,
+        classified: analysis.metrics.classified,
         facing: analysis.metrics.facing,
         sideScore: analysis.metrics.sideScore,
         headTilt: analysis.metrics.headTilt,
@@ -766,7 +790,13 @@ async function boot() {
         localStorage.getItem("haozuo-baseline") ||
         "null"
     );
-    if (state.baseline && state.baseline.view !== "side" && state.baseline.view !== "oblique") state.baseline = null;
+    // Older builds calibrated without passing viewMode, so a valid side-view
+    // baseline may be mislabeled as "front". Repair that label in place.
+    if (state.baseline && state.settings.viewMode === "side" && state.baseline.view === "front") {
+      state.baseline = { ...state.baseline, view: "side" };
+    } else if (state.baseline && state.settings.viewMode === "side" && state.baseline.view !== "side" && state.baseline.view !== "oblique") {
+      state.baseline = null;
+    }
     if (state.baseline) api.saveBaseline(state.baseline);
   } catch {
     state.baseline = null;

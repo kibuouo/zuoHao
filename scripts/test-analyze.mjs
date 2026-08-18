@@ -1,4 +1,4 @@
-import { analyze, extractMetrics, fuseFaceIntoPose, isHeadCollapsed, isUpperBodyVisible } from "../renderer/js/analyze.js";
+import { analyze, captureBaseline, extractMetrics, fuseFaceIntoPose, isHeadCollapsed, isUpperBodyVisible } from "../renderer/js/analyze.js";
 
 function pose(overrides) {
   const lm = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.08 }));
@@ -113,6 +113,81 @@ const obviousRight = pose({
 const rightA = analyze(obviousRight, null, settings, { aspect });
 check("right-facing FHP", rightA.issues.some((i) => i.id === "forwardHead"), JSON.stringify(rightA.issues));
 check("right-facing sign", rightA.metrics.facing === "right", rightA.metrics.facing);
+
+const obliqueShoulder = pose({
+  0: { x: 0.32, y: 0.3 },
+  2: { x: 0.35, y: 0.28 },
+  5: { x: 0.45, y: 0.28, visibility: 0.25 },
+  7: { x: 0.48, y: 0.32 },
+  8: { x: 0.56, y: 0.32, visibility: 0.32 },
+  9: { x: 0.31, y: 0.36 },
+  10: { x: 0.35, y: 0.36, visibility: 0.3 },
+  11: { x: 0.35, y: 0.48, visibility: 0.92 },
+  12: { x: 0.6, y: 0.52, visibility: 0.8 },
+  23: { x: 0.4, y: 0.78, visibility: 0.7 },
+  24: { x: 0.55, y: 0.78, visibility: 0.4 },
+});
+const obliqueM = extractMetrics(obliqueShoulder, { aspect, viewHint: "side" });
+const obliqueA = analyze(obliqueShoulder, null, settings, { aspect });
+check(
+  "oblique side chooses shoulder under head",
+  obliqueM.classified === "front" && obliqueM.shoulderSource === "oblique-nearer" && obliqueM.shoulderIdx === 12,
+  JSON.stringify({ classified: obliqueM.classified, shoulderSource: obliqueM.shoulderSource, shoulderIdx: obliqueM.shoulderIdx })
+);
+check(
+  "oblique side still detects FHP",
+  obliqueA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ earForward: obliqueM.earForward, cva: obliqueM.cva, issues: obliqueA.issues })
+);
+const obliqueShoulderMid = (obliqueShoulder[11].x + obliqueShoulder[12].x) / 2;
+const obliqueC7Expected = obliqueShoulderMid - (obliqueM.facing === "left" ? -1 : 1) * 0.022;
+check(
+  "oblique C7 uses shoulder midline",
+  obliqueM.c7AnchorSource === "shoulder-midline" && Math.abs(obliqueM.c7.x - obliqueC7Expected) < 0.006,
+  JSON.stringify({ source: obliqueM.c7AnchorSource, c7: obliqueM.c7.x, expected: obliqueC7Expected })
+);
+
+const calibratedNeutral = pose({
+  0: { x: 0.43, y: 0.3 },
+  2: { x: 0.49, y: 0.28 },
+  5: { x: 0.55, y: 0.28 },
+  7: { x: 0.515, y: 0.32 },
+  8: { x: 0.53, y: 0.32 },
+  9: { x: 0.43, y: 0.36 },
+  10: { x: 0.47, y: 0.36 },
+  11: { x: 0.42, y: 0.52 },
+  12: { x: 0.58, y: 0.52 },
+  23: { x: 0.43, y: 0.8 },
+  24: { x: 0.57, y: 0.8 },
+});
+const calibratedForward = calibratedNeutral.map((p, i) => (i === 7 ? { ...p, x: 0.495 } : p));
+const worldFor = (lm, earX) =>
+  lm.map((p, i) => {
+    if (i === 7) return { x: earX, y: 0, z: 0, visibility: 0.9 };
+    if (i === 11) return { x: 0, y: 0, z: 0, visibility: 0.9 };
+    return { x: 0, y: 0, z: 0, visibility: p.visibility };
+  });
+const neutralWorld = worldFor(calibratedNeutral, -0.2);
+const forwardWorld = worldFor(calibratedForward, -0.02);
+const neutralBaseline = captureBaseline(calibratedNeutral, {
+  aspect,
+  world: neutralWorld,
+  viewHint: "side",
+});
+const calibratedNeutralM = extractMetrics(calibratedNeutral, { aspect, world: neutralWorld, viewHint: "side" });
+const calibratedForwardM = extractMetrics(calibratedForward, { aspect, world: forwardWorld, viewHint: "side" });
+const calibratedNeutralA = analyze(calibratedNeutral, neutralBaseline, settings, { aspect, world: neutralWorld });
+const calibratedForwardA = analyze(calibratedForward, neutralBaseline, settings, { aspect, world: forwardWorld });
+check(
+  "calibrated oblique neutral ignores absolute world offset",
+  calibratedNeutralM.classified === "front" && calibratedNeutralM.worldEarForward > 0.15 && !calibratedNeutralA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ metrics: calibratedNeutralM, issues: calibratedNeutralA.issues })
+);
+check(
+  "calibrated oblique FHP uses relative drop",
+  calibratedForwardM.classified === "front" && calibratedForwardM.cva > 68 && calibratedForwardM.cva < 74 && calibratedForwardA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ metrics: calibratedForwardM, issues: calibratedForwardA.issues })
+);
 
 check("side still evaluates tilt/slope/lean", ["headTilt", "unevenShoulders", "lean"].every((id) => settings.checks[id]));
 check("upright no tilt if not ready", !upA.issues.some((i) => i.id === "headTilt"), JSON.stringify(upA.issues));

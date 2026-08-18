@@ -160,6 +160,7 @@ export class PoseEngine {
     this.baseline = captureBaseline(this.smoothed, {
       aspect: this.videoAspect(),
       world: this.smoothedWorld,
+      viewHint: this.settings?.viewMode === "auto" ? null : this.settings?.viewMode,
     });
     this.smoothState = {
       cva: this.baseline.cva,
