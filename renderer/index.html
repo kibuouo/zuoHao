@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com; worker-src 'self' blob:; child-src 'self' blob:; media-src 'self' blob:; img-src 'self' data: blob:;"
+    />
+    <title>好坐</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="main-body platform-win32">
+    <div class="main-window-shell">
+      <header class="app-titlebar">
+        <div class="titlebar-brand"><img src="../assets/icon.png" alt="" /></div>
+        <div class="titlebar-drag-region" aria-hidden="true"></div>
+        <button class="titlebar-settings" id="btn-capsule" type="button" aria-label="启用胶囊" title="启用胶囊">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="8" width="18" height="8" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+            <circle cx="8" cy="12" r="1.2" fill="currentColor"></circle>
+            <path d="M12 12h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          </svg>
+        </button>
+        <div class="window-controls">
+          <button id="window-minimize" type="button" aria-label="最小化"><span></span></button>
+          <button id="window-maximize" type="button" aria-label="最大化"><span></span></button>
+          <button id="window-close" class="close" type="button" aria-label="关闭"><span></span></button>
+        </div>
+      </header>
+
+      <div class="workspace" id="workspace">
+        <main class="main-content">
+          <section id="page-Home" class="page">
+            <header class="page-header">
+              <div>
+                <p class="page-kicker">ZuoHao</p>
+                <h1>好坐</h1>
+                <p id="engine-note">模型加载后才会开始量角</p>
+              </div>
+              <div class="page-actions">
+                <button type="button" class="refresh-button" id="btn-monitor">开启监测</button>
+                <button type="button" class="ghost-button" id="btn-calibrate" disabled>校准标准坐姿</button>
+                <button type="button" class="ghost-button" id="btn-settings">设置</button>
+              </div>
+            </header>
+
+            <div class="home-metrics">
+              <article class="home-metric">
+                <span>坐姿指数</span>
+                <strong id="dash-score">—</strong>
+                <small id="dash-score-note">开启监测后开始计分</small>
+              </article>
+              <article class="home-metric">
+                <span>颅椎角</span>
+                <strong id="dash-cva">—<em>°</em></strong>
+                <small id="dash-cva-note">侧看耳—肩与水平线夹角</small>
+              </article>
+              <article class="home-metric">
+                <span>连续落座</span>
+                <strong id="dash-sit">00:00:00</strong>
+                <small id="dash-sit-note">离开画面会自动暂停</small>
+              </article>
+              <article class="home-metric">
+                <span>今日良好</span>
+                <strong id="dash-good">—</strong>
+                <small id="day-summary">还没有记录</small>
+              </article>
+            </div>
+
+            <div class="monitor-grid">
+              <div class="viewfinder">
+                <div class="film-gate">
+                  <video id="camera" playsinline muted></video>
+                  <canvas id="overlay"></canvas>
+                  <div class="view-status" id="view-status">等待镜头</div>
+                  <div class="score-pill" id="score-pill">
+                    <span class="score-num" id="score-num">—</span>
+                    <span class="score-label">坐姿指数</span>
+                  </div>
+                </div>
+                <div class="finder-meta">
+                  <p id="plumb-readout">铅垂线未锁定</p>
+                </div>
+              </div>
+              <aside class="monitor-side">
+                <section class="health-panel">
+                  <div class="health-panel-copy">
+                    <h2>连续落座</h2>
+                    <p class="sit-clock" id="sit-clock">00:00:00</p>
+                  </div>
+                  <div class="sit-bar"><i id="sit-bar"></i></div>
+                  <p class="sit-caption" id="sit-caption">监测开始后计时。离开画面会自动暂停。</p>
+                </section>
+                <section class="health-panel checks" id="checks"></section>
+                <section class="health-panel coach">
+                  <div class="health-panel-copy">
+                    <h2>当下建议</h2>
+                    <p id="coach-text">把摄像头放在身体一侧，能看到耳朵、脖子和近侧肩膀。</p>
+                  </div>
+                </section>
+              </aside>
+            </div>
+
+            <section class="health-panel journal-panel">
+              <div class="health-panel-copy">
+                <h2>今日记录</h2>
+              </div>
+              <canvas id="spark" width="640" height="64" aria-label="今日坐姿走势"></canvas>
+              <ol class="events" id="events"></ol>
+            </section>
+          </section>
+
+          <section id="page-Settings" class="page settings-page" hidden>
+            <div class="settings-content">
+              <header class="page-header">
+                <div>
+                  <p class="page-kicker">SETTINGS</p>
+                  <h1>设置</h1>
+                  <p>提醒间隔、拍摄方向和监测项目。</p>
+                </div>
+                <div class="page-actions">
+                  <button type="button" class="ghost-button" id="btn-settings-back">返回监测</button>
+                </div>
+              </header>
+              <form id="settings-form" class="settings-stack">
+                <article class="health-panel">
+                  <div class="health-panel-copy">
+                    <h2>监测</h2>
+                    <p>侧拍更准。改完后保存即可。</p>
+                  </div>
+                  <div class="settings-grid">
+                    <label>久坐提醒间隔
+                      <select name="sitIntervalMinutes">
+                        <option value="30">30 分钟</option>
+                        <option value="45">45 分钟</option>
+                        <option value="50">50 分钟</option>
+                        <option value="60">60 分钟</option>
+                        <option value="90">90 分钟</option>
+                      </select>
+                    </label>
+                    <label>起身休息时长
+                      <select name="breakMinutes">
+                        <option value="2">2 分钟</option>
+                        <option value="3">3 分钟</option>
+                        <option value="5">5 分钟</option>
+                      </select>
+                    </label>
+                    <label>检测灵敏度
+                      <select name="sensitivity">
+                        <option value="strict">严格</option>
+                        <option value="standard">标准</option>
+                        <option value="relaxed">宽松</option>
+                      </select>
+                    </label>
+                    <label>拍摄方向
+                      <select name="viewMode">
+                        <option value="side">侧拍（测脖子前倾）</option>
+                        <option value="auto">自动识别</option>
+                        <option value="front">正面</option>
+                      </select>
+                    </label>
+                    <label>摄像头
+                      <select name="cameraId" id="camera-select">
+                        <option value="">系统默认</option>
+                      </select>
+                    </label>
+                    <label>外观
+                      <select name="theme">
+                        <option value="dark">深色</option>
+                        <option value="light">浅色</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+                <article class="health-panel">
+                  <div class="health-panel-copy">
+                    <h2>监测项目</h2>
+                    <p>侧拍也会看头侧倾、高低肩和身体侧倾，用深度和 3D 点单独估，点位不够时会标成信号弱。</p>
+                  </div>
+                  <div class="check-grid">
+                    <label class="check"><input type="checkbox" name="forwardHead" />脖子前倾</label>
+                    <label class="check"><input type="checkbox" name="slouch" />含胸驼背</label>
+                    <label class="check"><input type="checkbox" name="headTilt" />头侧倾</label>
+                    <label class="check"><input type="checkbox" name="unevenShoulders" />高低肩</label>
+                    <label class="check"><input type="checkbox" name="lean" />身体侧倾</label>
+                  </div>
+                </article>
+                <article class="health-panel">
+                  <div class="health-panel-copy">
+                    <h2>系统</h2>
+                  </div>
+                  <div class="check-grid">
+                    <label class="check"><input type="checkbox" name="sound" />提示音</label>
+                    <label class="check"><input type="checkbox" name="startOnLaunch" />打开后自动监测</label>
+                    <label class="check"><input type="checkbox" name="launchAtLogin" />开机启动</label>
+                    <label class="check"><input type="checkbox" name="minimizeOnClose" />关闭窗口时收到托盘</label>
+                  </div>
+                  <div class="sheet-actions">
+                    <button type="submit" class="refresh-button">保存设置</button>
+                  </div>
+                </article>
+              </form>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toasts" aria-live="polite"></div>
+
+    <div class="onboard" id="onboard" hidden>
+      <div class="onboard-card">
+        <p class="page-kicker">FIRST SITTING</p>
+        <h2>把镜头放到身体一侧</h2>
+        <ol>
+          <li>摄像头与肩膀大致平齐，能看清耳朵、脖子和靠近镜头的那侧肩膀。</li>
+          <li>侧对屏幕坐好，脸朝向显示器，不要正对摄像头。</li>
+          <li>先坐正，再点「校准标准坐姿」。</li>
+        </ol>
+        <p class="fine">检测在本地完成，不会把画面传到网上。</p>
+        <button type="button" class="refresh-button" id="btn-onboard">知道了，打开镜头</button>
+      </div>
+    </div>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

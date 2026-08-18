@@ -1,0 +1,20 @@
+{
+  "name": "zuohao",
+  "version": "1.0.0",
+  "description": "好坐 ZuoHao — 桌面坐姿监测与久坐提醒",
+  "main": "electron/main.js",
+  "author": "ZuoHao",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "postinstall": "node scripts/ensure-electron.js",
+    "icons": "node scripts/make-icon.js",
+    "mcp": "node mcp/server.js",
+    "test:analyze": "node scripts/test-analyze.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1"
+  },
+  "allowScripts": {}
+}

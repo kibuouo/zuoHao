@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;"
+    />
+    <title>好坐</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="floating-body">
+    <main class="floating-shell" id="floating-shell" aria-label="好坐状态">
+      <section class="status-capsule" id="status-capsule">
+        <span class="github-avatar github-avatar-bar"><img src="../assets/icon.png" alt="" /></span>
+        <span class="heart-icon" id="cap-lamp"></span>
+        <strong class="metric" id="cap-cva">—°</strong>
+        <strong class="metric" id="cap-sit">00:00</strong>
+        <span class="capsule-status" id="cap-alert-text">待机</span>
+        <div class="capsule-actions no-drag">
+          <button class="capsule-btn" id="open-main" type="button" aria-label="打开主界面" title="打开主界面">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+              <path d="M4 9h16" fill="none" stroke="currentColor" stroke-width="1.8"></path>
+            </svg>
+          </button>
+          <button class="capsule-btn pin-button" id="pin-button" type="button" aria-label="钉住胶囊" title="钉住">
+            <svg class="pin-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 3h6v2l-1.4 1.4v4.8L18 15.6V17h-5v4h-2v-4H6v-1.4l4.4-4.4V6.4L9 5V3Z"></path>
+            </svg>
+          </button>
+        </div>
+      </section>
+    </main>
+    <script src="./js/capsule.js"></script>
+  </body>
+</html>

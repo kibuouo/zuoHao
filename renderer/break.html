@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self';"
+    />
+    <title>该起身了</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="break-page">
+    <section class="break-card">
+      <p class="page-kicker">STAND UP</p>
+      <h1>该起身了</h1>
+      <p class="break-clock" id="clock">03:00</p>
+      <p id="body">站起来走一圈，转转手腕和后颈。不要继续坐着回消息。</p>
+      <div class="break-actions">
+        <button type="button" class="refresh-button" id="done">我已起身</button>
+        <button type="button" class="ghost-button" id="snooze">推迟 10 分钟</button>
+      </div>
+    </section>
+    <script src="./js/break.js"></script>
+  </body>
+</html>

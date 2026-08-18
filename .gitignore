@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.debug/
+.grok/
+.DS_Store
+Thumbs.db
+*.log
+electron-stdout.log
+electron-stderr.log
