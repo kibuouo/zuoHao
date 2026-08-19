@@ -216,6 +216,83 @@ check(
   JSON.stringify({ metrics: calibratedForwardM, issues: calibratedForwardA.issues, neutralCva: calibratedNeutralM.cva })
 );
 
+// Regression from a real 3/4 camera capture: facing-left projection put the
+// calibrated ear behind the selected shoulder, so both neutral and forward
+// values were negative. The old positive absolute gate missed the forward
+// motion, while noisy MediaPipe depth could flag the neutral pose by itself.
+const negativeNeutral = fortyFive.map((p, i) => {
+  if (i === 0 || i === 2 || i === 7 || i === 8 || i === 9 || i === 10) return { ...p, x: p.x - 0.006 };
+  return p;
+});
+const negativeForward = fortyFive.map((p, i) => {
+  if (i === 0 || i === 2 || i === 7 || i === 8 || i === 9 || i === 10) return { ...p, x: p.x - 0.055 };
+  return p;
+});
+const negativeBaseline = {
+  ...captureBaseline(negativeNeutral, { aspect, viewHint: "side" }),
+  // A deliberately contradictory depth baseline reproduces the live false
+  // positive and proves depth cannot create the issue on its own.
+  headForwardDepth: -0.219,
+};
+const negativeNeutralA = analyze(negativeNeutral, negativeBaseline, settings, { aspect });
+const negativeForwardA = analyze(negativeForward, negativeBaseline, settings, { aspect });
+check(
+  "calibrated negative projection stays neutral inside deadband",
+  !negativeNeutralA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ ear: negativeNeutralA.metrics.earForward, issues: negativeNeutralA.issues })
+);
+check(
+  "calibrated negative projection detects relative forward motion",
+  negativeForwardA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ ear: negativeForwardA.metrics.earForward, issues: negativeForwardA.issues })
+);
+
+const chinTrackedForward = negativeNeutral.map((p, i) => {
+  // Reproduce the live camera: Face Landmarker tracks the mouth/chin moving
+  // clearly forward while the pose ear barely moves.
+  if (i === 0 || i === 9 || i === 10) return { ...p, x: p.x - 0.045 };
+  return p;
+});
+const chinTrackedForwardA = analyze(chinTrackedForward, negativeBaseline, settings, { aspect });
+check(
+  "calibrated chin displacement survives weak ear tracking",
+  chinTrackedForwardA.metrics.earForward - negativeBaseline.earForward < 0.1 &&
+    chinTrackedForwardA.metrics.chinForward - negativeBaseline.chinForward > 0.2 &&
+    chinTrackedForwardA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({
+    earDelta: chinTrackedForwardA.metrics.earForward - negativeBaseline.earForward,
+    chinDelta: chinTrackedForwardA.metrics.chinForward - negativeBaseline.chinForward,
+    issues: chinTrackedForwardA.issues,
+  })
+);
+
+const flippedFaceVote = negativeNeutral.map((p, i) => {
+  if (i === 0 || i === 2 || i === 5 || i === 9 || i === 10) return { ...p, x: p.x + 0.28 };
+  return p;
+});
+const flippedFaceVoteA = analyze(flippedFaceVote, negativeBaseline, settings, { aspect });
+check(
+  "calibration locks facing and shoulder anchor across face-vote flip",
+  flippedFaceVoteA.metrics.facing === negativeBaseline.facing &&
+    flippedFaceVoteA.metrics.shoulderIdx === negativeNeutralA.metrics.shoulderIdx,
+  JSON.stringify({
+    baselineFacing: negativeBaseline.facing,
+    facing: flippedFaceVoteA.metrics.facing,
+    baselineShoulder: negativeNeutralA.metrics.shoulderIdx,
+    shoulder: flippedFaceVoteA.metrics.shoulderIdx,
+  })
+);
+
+const forwardLatchState = {};
+const latchStart = analyze(chinTrackedForward, negativeBaseline, settings, { aspect, smoothState: forwardLatchState });
+const latchOnlyState = { forwardHeadLatch: forwardLatchState.forwardHeadLatch };
+const latchDropout = analyze(negativeNeutral, negativeBaseline, settings, { aspect, smoothState: latchOnlyState });
+check(
+  "confirmed FHP survives a single calibrated landmark dropout",
+  latchStart.issues.some((i) => i.id === "forwardHead") && latchDropout.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ start: latchStart.issues, dropout: latchDropout.issues })
+);
+
 check("side still evaluates tilt/slope/lean", ["headTilt", "unevenShoulders", "lean"].every((id) => settings.checks[id]));
 check("upright no tilt if not ready", !upA.issues.some((i) => i.id === "headTilt"), JSON.stringify(upA.issues));
 

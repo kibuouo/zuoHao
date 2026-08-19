@@ -64,6 +64,7 @@ export const ALGORITHM_DEFAULTS = {
   smoothAlphaDown: 0.48,
   landmarkAlphaSide: 0.34,
   landmarkAlphaFront: 0.38,
+  forwardHoldMs: 2000,
 };
 
 export const POSE_CONNECTIONS = [
@@ -338,13 +339,19 @@ export function fuseFaceIntoPose(poseLm, faceLm) {
   return { landmarks: next, fused: true, extras };
 }
 
-function sideSagittal(lm, aspect, world, face, ambiguous = false) {
+function sideSagittal(lm, aspect, world, face, ambiguous = false, facingHint = null) {
   const visProfile = pickProfile(lm);
   const collapsed = isHeadCollapsed(lm);
   const nose = (face && face.nose) || lm[I.NOSE];
   const guessEar = (face && (visProfile.side === "left" ? face.lEar : face.rEar)) || visProfile.ear;
-  const forwardSign = inferForwardSign(nose, guessEar, visProfile.mouth, visProfile.eye);
-  const facing = forwardSign < 0 ? "left" : "right";
+  const inferredSign = inferForwardSign(nose, guessEar, visProfile.mouth, visProfile.eye);
+  // A calibrated desktop camera has a fixed viewing direction. Re-inferring
+  // it every frame lets a forward poke or noisy face point flip left/right,
+  // which also swaps the shoulder anchor and reverses every displacement.
+  const facing = facingHint === "left" || facingHint === "right"
+    ? facingHint
+    : inferredSign < 0 ? "left" : "right";
+  const forwardSign = facing === "left" ? -1 : 1;
 
   // True side: the visible silhouette. 45°: the anatomical profile the camera
   // actually sees (look left → right ear/shoulder), not the near-camera chest.
@@ -576,7 +583,7 @@ export function extractMetrics(lm, opts = {}) {
   const rHip = lm[I.R_HIP];
   const hipsOk = vis(lHip) > 0.25 && vis(rHip) > 0.25;
 
-  const sag = sideSagittal(lm, aspect, opts.world, opts.face, classified.view !== "side");
+  const sag = sideSagittal(lm, aspect, opts.world, opts.face, classified.view !== "side", opts.facingHint);
 
   const earMid = mid(lEar, rEar);
   const shoulderMid = mid(lSh, rSh);
@@ -723,23 +730,40 @@ function decideForwardHead(m, baseline, k, algo) {
   let earWarn = algo.earFwdWarn * k.depth;
   let earAlert = algo.earFwdAlert * k.depth;
   const baseEar = baselineMetric(baseline, "earForward");
-  if (baseEar != null) {
-    earWarn = Math.max(earWarn * 0.7, baseEar + (ambiguous ? 0.06 : 0.1) * k.drop);
-    earAlert = Math.max(earAlert * 0.7, baseEar + (ambiguous ? 0.16 : 0.22) * k.drop);
-  }
-  if (m.earForward > earAlert) hit = worse(hit, { severity: "alert", detail: `耳已离开肩峰上方` });
-  else if (m.earForward > earWarn) hit = worse(hit, { severity: "warn", detail: `耳相对肩前移` });
+  const earDelta = baseEar == null ? null : m.earForward - baseEar;
+  // earForward is signed by the detected facing direction. In a 3/4 frame a
+  // perfectly usable neutral value can therefore be negative (for example
+  // -0.9). Comparing that value with the positive absolute threshold makes
+  // calibrated forward motion impossible to detect. Once calibrated, judge
+  // the signed displacement from the user's own neutral pose instead.
+  const relativeEarWarn = (ambiguous ? 0.1 : 0.12) * k.drop;
+  const relativeEarAlert = (ambiguous ? 0.2 : 0.24) * k.drop;
+  const earAlerted = earDelta == null ? m.earForward > earAlert : earDelta > relativeEarAlert;
+  const earWarned = earDelta == null ? m.earForward > earWarn : earDelta > relativeEarWarn;
+  if (earAlerted) hit = worse(hit, { severity: "alert", detail: `耳已离开标准肩位` });
+  else if (earWarned) hit = worse(hit, { severity: "warn", detail: `耳相对标准姿势前移` });
 
   let chinWarn = algo.chinFwdWarn * k.depth;
   let chinAlert = algo.chinFwdAlert * k.depth;
   const baseChin = baselineMetric(baseline, "chinForward");
-  if (baseChin != null) {
-    chinWarn = Math.max(chinWarn * 0.7, baseChin + (ambiguous ? 0.1 : 0.12) * k.drop);
-    chinAlert = Math.max(chinAlert * 0.7, baseChin + (ambiguous ? 0.2 : 0.24) * k.drop);
-  }
-  const chinSupported = m.earForward > earWarn * 0.35 || cva < absWarn + 6;
-  if (chinSupported && m.chinForward > chinAlert) hit = worse(hit, { severity: "alert", detail: `下颌明显前伸` });
-  else if (chinSupported && m.chinForward > chinWarn) hit = worse(hit, { severity: "warn", detail: `下颌前伸` });
+  const chinDelta = baseChin == null ? null : m.chinForward - baseChin;
+  // A 3/4 capture naturally moves the projected chin by roughly 0.13 while
+  // breathing or resettling. Live calibrated captures put a deliberate neck
+  // poke above 0.26, leaving a stable deadband between the two populations.
+  const relativeChinWarn = (ambiguous ? 0.16 : 0.12) * k.drop;
+  const relativeChinAlert = 0.24 * k.drop;
+  const chinAlerted = chinDelta == null ? m.chinForward > chinAlert : chinDelta > relativeChinAlert;
+  const chinWarned = chinDelta == null ? m.chinForward > chinWarn : chinDelta > relativeChinWarn;
+  // Face Landmarker's chin/mouth anchor is substantially steadier than the
+  // pose ear in a forced side view. A calibrated relative chin displacement
+  // is therefore valid evidence by itself; only the uncalibrated absolute
+  // chin path still needs ear/CVA corroboration.
+  const chinSupported =
+    chinDelta != null
+      ? chinWarned
+      : earWarned || (earDelta != null && earDelta > relativeEarWarn * 0.55) || cva < absWarn + 6;
+  if (chinSupported && chinAlerted) hit = worse(hit, { severity: "alert", detail: `下颌明显前伸` });
+  else if (chinSupported && chinWarned) hit = worse(hit, { severity: "warn", detail: `下颌前伸` });
 
   if (m.worldEarForward != null) {
     const baseWorld = baselineMetric(baseline, "worldEarForward");
@@ -768,8 +792,15 @@ function decideForwardHead(m, baseline, k, algo) {
     const baseDepth = baselineMetric(baseline, "headForwardDepth");
     if (baseDepth != null && Number.isFinite(m.headForwardDepth)) {
       const depthDelta = m.headForwardDepth - baseDepth;
-      if (depthDelta > 0.12) hit = worse(hit, { severity: "alert", detail: "头相对标准姿势明显前移" });
-      else if (depthDelta > 0.07) hit = worse(hit, { severity: "warn", detail: "头相对标准姿势前移" });
+      // MediaPipe depth is noisy when a front/3/4 frame is forced through the
+      // side-view workflow. It may even reverse when the torso rotates. Never
+      // let depth alone create the forward-head issue; require matching 2D
+      // head displacement from the calibrated ear/chin anchors.
+      const depthCorroborated =
+        (earDelta != null && earDelta > relativeEarWarn) ||
+        (chinDelta != null && chinDelta > relativeChinWarn);
+      if (depthCorroborated && depthDelta > 0.12) hit = worse(hit, { severity: "alert", detail: "头相对标准姿势明显前移" });
+      else if (depthCorroborated && depthDelta > 0.07) hit = worse(hit, { severity: "warn", detail: "头相对标准姿势前移" });
     }
   }
 
@@ -816,7 +847,11 @@ export function analyze(lm, baseline, settings, opts = {}) {
   const k = SENSITIVITY[settings.sensitivity] || SENSITIVITY.standard;
   const algo = algoOf(settings);
   const viewHint = settings.viewMode === "auto" ? null : settings.viewMode;
-  const m = extractMetrics(lm, { ...opts, viewHint: viewHint || opts.viewHint });
+  const m = extractMetrics(lm, {
+    ...opts,
+    viewHint: viewHint || opts.viewHint,
+    facingHint: baseline?.facing || opts.facingHint,
+  });
   if (opts.smoothState) {
     const up = algo.smoothAlpha;
     const down = algo.smoothAlphaDown || 0.48;
@@ -844,7 +879,20 @@ export function analyze(lm, baseline, settings, opts = {}) {
   const sideLike = m.view === "side" || m.view === "oblique" || settings.viewMode === "side";
 
   if (enabled.forwardHead !== false) {
-    const hit = sideLike ? decideForwardHead(m, baseline, k, algo) : decideFrontForwardHead(m, baseline, k, settings);
+    let hit = sideLike ? decideForwardHead(m, baseline, k, algo) : decideFrontForwardHead(m, baseline, k, settings);
+    if (opts.smoothState) {
+      const now = Date.now();
+      if (hit) {
+        opts.smoothState.forwardHeadLatch = { until: now + algo.forwardHoldMs, hit: { ...hit } };
+      } else if (opts.smoothState.forwardHeadLatch?.until > now) {
+        // Do not flicker back to good because one face/ear frame straddled the
+        // calibrated threshold. The alert clears shortly after a real return
+        // to neutral, while the UI's existing hold timer handles escalation.
+        hit = { ...opts.smoothState.forwardHeadLatch.hit };
+      } else {
+        delete opts.smoothState.forwardHeadLatch;
+      }
+    }
     if (hit) issues.push(issue("forwardHead", hit.severity, Math.round(m.cva), hit.detail));
   }
 

@@ -172,6 +172,7 @@ const TOOLS = [
         smoothAlphaDown: { type: "number" },
         landmarkAlphaSide: { type: "number" },
         landmarkAlphaFront: { type: "number" },
+        forwardHoldMs: { type: "number", description: "确认前倾后的短时保持毫秒数，默认 2000" },
       },
       additionalProperties: false,
     },

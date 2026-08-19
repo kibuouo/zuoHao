@@ -23,6 +23,7 @@ const DEFAULT_ALGORITHM = {
   smoothAlphaDown: 0.48,
   landmarkAlphaSide: 0.34,
   landmarkAlphaFront: 0.38,
+  forwardHoldMs: 2000,
 };
 
 function mergeAlgorithm(stored) {
