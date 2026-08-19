@@ -18,6 +18,9 @@ app.setAppUserModelId("com.zuohao.posture");
 app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
 app.commandLine.appendSwitch("enable-blink-features", "SharedArrayBuffer");
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
 const DEFAULT_SETTINGS = {
   sitIntervalMinutes: 45,
@@ -64,8 +67,10 @@ function userFile(name) {
 }
 
 function framePaths() {
+  const user = userFile("debug-frame.jpg");
+  if (app.isPackaged) return { user, project: user };
   return {
-    user: userFile("debug-frame.jpg"),
+    user,
     project: path.join(__dirname, "..", ".debug", "frame.jpg"),
   };
 }
@@ -178,6 +183,7 @@ function prefs() {
     nodeIntegration: false,
     sandbox: false,
     spellcheck: false,
+    backgroundThrottling: false,
   };
 }
 
@@ -216,6 +222,7 @@ function createMainWindow() {
     webPreferences: prefs(),
   });
 
+  mainWindow.webContents.setBackgroundThrottling(false);
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -260,10 +267,12 @@ function createFloatingWindow() {
     webPreferences: prefs(),
   });
   floatingWindow.setAlwaysOnTop(true, "status", 1);
+  floatingWindow.webContents.setBackgroundThrottling(false);
   floatingWindow.loadFile(path.join(__dirname, "..", "renderer", "capsule.html"));
   floatingWindow.webContents.on("did-finish-load", () => {
     applyFloatingPin(loadSettings().capsulePinned);
     send(floatingWindow, "floating:pinned", floatingPinned);
+    if (liveSnapshot) send(floatingWindow, "posture:update", liveSnapshot);
   });
   floatingWindow.on("closed", () => {
     floatingWindow = null;

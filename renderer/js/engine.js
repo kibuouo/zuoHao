@@ -29,6 +29,7 @@ export class PoseEngine {
     this.onError = null;
     this.cameraId = null;
     this.smoothState = null;
+    this.timer = 0;
   }
 
   async init() {
@@ -97,9 +98,22 @@ export class PoseEngine {
     this.cameraId = cameraId || null;
 
     if (!this.landmarker) await this.init();
+    this.bindKeepalive();
     await this.openCamera(cameraId);
     this.running = true;
     this.loop();
+    if (this.timer) clearInterval(this.timer);
+    this.timer = setInterval(() => this.pump(), 50);
+  }
+
+  bindKeepalive() {
+    if (this._keepaliveBound) return;
+    this._keepaliveBound = true;
+    this._resumeVideo = () => {
+      if (this.running && this.video) this.video.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", this._resumeVideo);
+    document.addEventListener("freeze", this._resumeVideo);
   }
 
   async openCamera(cameraId) {
@@ -130,6 +144,10 @@ export class PoseEngine {
       }
     }
     this.video.srcObject = this.stream;
+    this.video.playsInline = true;
+    this.video.muted = true;
+    this.video.removeEventListener("pause", this._resumeVideo);
+    this.video.addEventListener("pause", this._resumeVideo);
     await this.video.play();
     this.lastVideoTime = -1;
   }
@@ -175,6 +193,11 @@ export class PoseEngine {
   stop() {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = 0;
+    }
+    if (this.video && this._resumeVideo) this.video.removeEventListener("pause", this._resumeVideo);
     if (this.stream) {
       this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
@@ -189,6 +212,11 @@ export class PoseEngine {
   loop = () => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.loop);
+    this.pump();
+  };
+
+  pump() {
+    if (!this.running) return;
     const video = this.video;
     if (!video || video.readyState < 2) return;
     if (video.currentTime === this.lastVideoTime) return;
@@ -241,5 +269,5 @@ export class PoseEngine {
     } catch (err) {
       if (this.onError) this.onError(err);
     }
-  };
+  }
 }

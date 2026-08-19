@@ -73,7 +73,7 @@ const badM = extractMetrics(obvious, { aspect, viewHint: "side" });
 const mildM = extractMetrics(mild, { aspect, viewHint: "side" });
 
 check("upright CVA high", upM.cva >= 54, `cva=${upM.cva.toFixed(1)} earFwd=${upM.earForward.toFixed(2)}`);
-check("obvious CVA low", badM.cva <= 42, `cva=${badM.cva.toFixed(1)} earFwd=${badM.earForward.toFixed(2)}`);
+check("obvious CVA low", badM.cva <= 50 && badM.cva < upM.cva - 12, `cva=${badM.cva.toFixed(1)} up=${upM.cva.toFixed(1)} earFwd=${badM.earForward.toFixed(2)}`);
 check("obvious ear in front", badM.earForward > upM.earForward + 0.2, `up=${upM.earForward.toFixed(2)} bad=${badM.earForward.toFixed(2)}`);
 check("mild between", mildM.cva < upM.cva && mildM.cva > badM.cva, `mild=${mildM.cva.toFixed(1)}`);
 
@@ -128,23 +128,48 @@ const obliqueShoulder = pose({
   24: { x: 0.55, y: 0.78, visibility: 0.4 },
 });
 const obliqueM = extractMetrics(obliqueShoulder, { aspect, viewHint: "side" });
-const obliqueA = analyze(obliqueShoulder, null, settings, { aspect });
 check(
-  "oblique side chooses shoulder under head",
-  obliqueM.classified === "front" && obliqueM.shoulderSource === "oblique-nearer" && obliqueM.shoulderIdx === 12,
-  JSON.stringify({ classified: obliqueM.classified, shoulderSource: obliqueM.shoulderSource, shoulderIdx: obliqueM.shoulderIdx })
+  "oblique 45° uses profile-side shoulder",
+  obliqueM.shoulderIdx === 12 && obliqueM.shoulderSource === "profile-side",
+  JSON.stringify({ classified: obliqueM.classified, shoulderSource: obliqueM.shoulderSource, shoulderIdx: obliqueM.shoulderIdx, facing: obliqueM.facing })
+);
+check("no derived C7", !upM.c7 && !upM.c3 && !upM.c5 && !obliqueM.c7);
+
+const fortyFive = pose({
+  0: { x: 0.34, y: 0.4 },
+  2: { x: 0.36, y: 0.38 },
+  5: { x: 0.39, y: 0.38, visibility: 0.5 },
+  7: { x: 0.38, y: 0.39 },
+  8: { x: 0.42, y: 0.39, visibility: 0.55 },
+  9: { x: 0.34, y: 0.44 },
+  10: { x: 0.36, y: 0.44 },
+  11: { x: 0.58, y: 0.62, visibility: 0.95 },
+  12: { x: 0.34, y: 0.58, visibility: 0.9 },
+  23: { x: 0.52, y: 0.85, visibility: 0.5 },
+  24: { x: 0.38, y: 0.85, visibility: 0.5 },
+});
+const f5M = extractMetrics(fortyFive, { aspect, viewHint: "side" });
+const f5A = analyze(fortyFive, null, settings, { aspect });
+check(
+  "45° camera uses profile-side shoulder not chest acromion",
+  f5M.shoulderIdx === 12 && f5M.facing === "left" && (f5M.shoulderSource === "profile-side" || f5M.shoulderSource === "under-head"),
+  JSON.stringify({ classified: f5M.classified, source: f5M.shoulderSource, idx: f5M.shoulderIdx, cva: f5M.cva, earFwd: f5M.earForward })
 );
 check(
-  "oblique side still detects FHP",
-  obliqueA.issues.some((i) => i.id === "forwardHead"),
-  JSON.stringify({ earForward: obliqueM.earForward, cva: obliqueM.cva, issues: obliqueA.issues })
+  "45° stacked sitting is not FHP",
+  f5M.cva >= 54 && !f5A.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ cva: f5M.cva, earFwd: f5M.earForward, issues: f5A.issues })
 );
-const obliqueShoulderMid = (obliqueShoulder[11].x + obliqueShoulder[12].x) / 2;
-const obliqueC7Expected = obliqueShoulderMid - (obliqueM.facing === "left" ? -1 : 1) * 0.022;
+const fortyFiveFwd = fortyFive.map((p, i) => {
+  if (i === 0 || i === 2 || i === 7 || i === 8 || i === 9) return { ...p, x: p.x - 0.13 };
+  return p;
+});
+const f5FwdM = extractMetrics(fortyFiveFwd, { aspect, viewHint: "side" });
+const f5FwdA = analyze(fortyFiveFwd, null, settings, { aspect });
 check(
-  "oblique C7 uses shoulder midline",
-  obliqueM.c7AnchorSource === "shoulder-midline" && Math.abs(obliqueM.c7.x - obliqueC7Expected) < 0.006,
-  JSON.stringify({ source: obliqueM.c7AnchorSource, c7: obliqueM.c7.x, expected: obliqueC7Expected })
+  "45° actual poke still flags FHP",
+  f5FwdM.earForward > f5M.earForward + 0.15 && f5FwdA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ earFwd: f5FwdM.earForward, cva: f5FwdM.cva, issues: f5FwdA.issues })
 );
 
 const calibratedNeutral = pose({
@@ -160,11 +185,11 @@ const calibratedNeutral = pose({
   23: { x: 0.43, y: 0.8 },
   24: { x: 0.57, y: 0.8 },
 });
-const calibratedForward = calibratedNeutral.map((p, i) => (i === 7 ? { ...p, x: 0.495 } : p));
+const calibratedForward = calibratedNeutral.map((p, i) => (i === 7 || i === 8 ? { ...p, x: p.x - 0.04 } : p));
 const worldFor = (lm, earX) =>
   lm.map((p, i) => {
-    if (i === 7) return { x: earX, y: 0, z: 0, visibility: 0.9 };
-    if (i === 11) return { x: 0, y: 0, z: 0, visibility: 0.9 };
+    if (i === 7 || i === 8) return { x: earX, y: 0, z: 0, visibility: 0.9 };
+    if (i === 11 || i === 12) return { x: 0, y: 0, z: 0, visibility: 0.9 };
     return { x: 0, y: 0, z: 0, visibility: p.visibility };
   });
 const neutralWorld = worldFor(calibratedNeutral, -0.2);
@@ -185,8 +210,10 @@ check(
 );
 check(
   "calibrated oblique FHP uses relative drop",
-  calibratedForwardM.classified === "front" && calibratedForwardM.cva > 68 && calibratedForwardM.cva < 74 && calibratedForwardA.issues.some((i) => i.id === "forwardHead"),
-  JSON.stringify({ metrics: calibratedForwardM, issues: calibratedForwardA.issues })
+  calibratedForwardM.classified === "front" &&
+    calibratedForwardM.cva < calibratedNeutralM.cva - 1 &&
+    calibratedForwardA.issues.some((i) => i.id === "forwardHead"),
+  JSON.stringify({ metrics: calibratedForwardM, issues: calibratedForwardA.issues, neutralCva: calibratedNeutralM.cva })
 );
 
 check("side still evaluates tilt/slope/lean", ["headTilt", "unevenShoulders", "lean"].every((id) => settings.checks[id]));
@@ -252,8 +279,11 @@ const chairFar = pose({
   23: { x: 0.51, y: 0.78, visibility: 0.6 },
 });
 const chairM = extractMetrics(chairFar, { aspect, viewHint: "side" });
-check("C7 stays on the neck not the chair", Math.abs(chairM.c7.x - chairFar[7].x) < 0.12 && Math.abs(chairM.c7.x - 0.78) > 0.12, `c7.x=${chairM.c7.x.toFixed(3)} ear=${chairFar[7].x}`);
-check("C7 between ear and shoulder", chairM.c7.y > chairFar[7].y && chairM.c7.y < chairFar[11].y, `c7.y=${chairM.c7.y.toFixed(3)}`);
+check(
+  "chair false-positive is not the sagittal shoulder",
+  Math.abs(chairM.shoulder.x - chairFar[11].x) < 0.02 && Math.abs(chairM.shoulder.x - 0.78) > 0.12,
+  `sh.x=${chairM.shoulder.x.toFixed(3)} idx=${chairM.shoulderIdx}`
+);
 
 const fakeFace = Array.from({ length: 478 }, () => ({ x: 0.4, y: 0.3, z: 0 }));
 fakeFace[1] = { x: 0.36, y: 0.3, z: 0 };

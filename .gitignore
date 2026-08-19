@@ -1,5 +1,11 @@
 node_modules/
 dist/
+*.exe
+*.blockmap
+assets/icon-16.png
+assets/icon-32.png
+assets/icon-48.png
+assets/icon-256.png
 .debug/
 .grok/
 .DS_Store

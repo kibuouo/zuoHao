@@ -126,7 +126,7 @@ function renderChecks(analysis) {
     let value = "未监测";
     if (weak) value = m?.view === "front" ? "点位不够" : "侧拍点位不够";
     else if (hit) value = hit.detail;
-    else if (id === "forwardHead" && m?.cva != null) value = `颅椎角 ${m.cva.toFixed(0)}°`;
+    else if (id === "forwardHead" && m?.cva != null) value = `耳–肩角 ${m.cva.toFixed(0)}°`;
     else if (id === "headTilt" && m && m.tiltReady) value = `侧倾 ${Math.abs(m.headTilt).toFixed(0)}°`;
     else if (id === "unevenShoulders" && m && m.slopeReady) value = `肩差 ${Math.abs(m.shoulderSlope).toFixed(0)}°`;
     else if (id === "lean" && m && m.leanReady) value = `侧倾 ${Math.abs(m.lean).toFixed(0)}°`;
@@ -217,21 +217,13 @@ function drawOverlay(landmarks, analysis, face) {
   }
 
   const m = analysis?.metrics;
-  const origin = m?.c7 || m?.shoulder;
-  if (origin) {
+  if (m?.ear && m?.shoulder) {
+    const origin = m.shoulder;
     const [cx, cy] = pt(origin);
+    const [ex, ey] = pt(m.ear);
     const accent = analysis?.status === "good" ? "#34d399" : analysis?.status === "alert" ? "#f0a39c" : "#fbbf24";
-    const neck = [m.ear, m.c3, m.c5 || m.cervical, origin].filter(Boolean);
-    ctx.beginPath();
-    neck.forEach((p, i) => {
-      const [x, y] = pt(p);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 3.4;
-    ctx.stroke();
-    if (m.hip) line(m.shoulder || origin, m.hip, "rgba(234,241,236,0.28)", 1.6);
+    line(m.ear, m.shoulder, accent, 3.4);
+    if (m.hip) line(m.shoulder, m.hip, "rgba(234,241,236,0.28)", 1.6);
 
     ctx.beginPath();
     ctx.moveTo(cx, 0);
@@ -247,31 +239,27 @@ function drawOverlay(landmarks, analysis, face) {
     ctx.strokeStyle = "rgba(16,163,127,0.7)";
     ctx.lineWidth = 1.4;
     ctx.stroke();
-    if (m.ear) {
-      dot(m.ear, "#10a37f", 5);
-      const [ex, ey] = pt(m.ear);
-      const facingLeft = m.facing === "left";
-      const start = facingLeft ? Math.PI : 0;
-      let end = Math.atan2(ey - cy, ex - cx);
-      if (facingLeft && end < 0) end += Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 54, start, end, !facingLeft);
-      ctx.strokeStyle = "rgba(16,163,127,0.95)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.save();
-      ctx.font = "600 18px -apple-system, sans-serif";
-      ctx.fillStyle = "#f3f7f3";
-      ctx.fillText(`${Math.round(m.cva || 0)}°`, cx + (facingLeft ? -86 : 18), cy - 14);
-      ctx.restore();
-    }
-    if (m.c3) dot(m.c3, "#6ee7b7", 4);
-    if (m.c5) dot(m.c5, "#34d399", 4.2);
+
+    const facingLeft = m.facing === "left";
+    const start = facingLeft ? Math.PI : 0;
+    let end = Math.atan2(ey - cy, ex - cx);
+    if (facingLeft && end < 0) end += Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 54, start, end, !facingLeft);
+    ctx.strokeStyle = "rgba(16,163,127,0.95)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.save();
+    ctx.font = "600 18px -apple-system, sans-serif";
+    ctx.fillStyle = "#f3f7f3";
+    ctx.fillText(`${Math.round(m.cva || 0)}°`, cx + (facingLeft ? -86 : 18), cy - 14);
+    ctx.restore();
+    dot(m.ear, "#10a37f", 5);
     dot(origin, "#10a37f", 5.5);
     ctx.save();
     ctx.font = "600 13px -apple-system, sans-serif";
     ctx.fillStyle = "rgba(243,247,243,0.9)";
-    ctx.fillText("C7", cx + 8, cy + 16);
+    ctx.fillText("肩", cx + 8, cy + 16);
     ctx.restore();
   }
 
@@ -319,11 +307,9 @@ function pushDebugFrame() {
           nearIdx: m.nearIdx,
           shoulderSource: m.shoulderSource,
           shoulderIdx: m.shoulderIdx,
-          c7AnchorSource: m.c7AnchorSource,
           points: {
             ear: m.ear,
             shoulder: m.shoulder,
-            c7: m.c7,
             lSh: m.lSh,
             rSh: m.rSh,
           },
@@ -388,11 +374,11 @@ function coachCopy(analysis, present) {
   if (!state.monitoring) return "把摄像头放在身体一侧，能看到耳朵、脖子和近侧肩膀，再点「开启监测」。";
   if (state.breakUntil > Date.now()) return "现在离开座位走动一下。肩颈需要的是卸力，不是再盯屏幕。";
   if (!present) return "侧拍里暂时看不到头肩。把耳朵和近侧肩膀留在画面里。";
-  if (!state.baseline) return "先坐正再校准。侧看时耳朵应大致叠在肩膀正上方。";
+  if (!state.baseline) return "先坐正再校准。斜侧时耳朵应大致在头底下那侧肩膀的上方。";
   const worst = analysis?.issues?.[0];
   if (!worst) {
     const cva = analysis?.metrics?.cva;
-    return Number.isFinite(cva) ? `颅椎角 ${cva.toFixed(0)}°，耳—肩基本共线。保持这个高度。` : "铅垂线贴着耳—肩。";
+    return Number.isFinite(cva) ? `耳–肩角 ${cva.toFixed(0)}°，耳—肩基本共线。保持这个高度。` : "铅垂线贴着耳—肩。";
   }
   return worst.fix;
 }
@@ -486,7 +472,6 @@ function broadcast(analysis, present) {
         nearIdx: analysis.metrics.nearIdx,
         shoulderSource: analysis.metrics.shoulderSource,
         shoulderIdx: analysis.metrics.shoulderIdx,
-        c7AnchorSource: analysis.metrics.c7AnchorSource,
         trunkAngle: analysis.metrics.trunkAngle,
         view: analysis.metrics.view,
         classified: analysis.metrics.classified,
@@ -546,7 +531,7 @@ function onFrame(frame) {
     if (analysis.metrics) {
       const viewLabel = analysis.metrics.view === "front" ? "正面" : analysis.metrics.view === "oblique" ? "斜侧" : "侧拍";
       const face = analysis.metrics.facing === "left" ? "面朝左" : "面朝右";
-      els.plumb.textContent = `${viewLabel} · ${face} · 颅椎角 ${analysis.metrics.cva.toFixed(0)}°`;
+      els.plumb.textContent = `${viewLabel} · ${face} · 耳–肩角 ${analysis.metrics.cva.toFixed(0)}°`;
     }
     applyMirror(analysis.metrics);
     renderChecks(analysis);
@@ -603,7 +588,13 @@ function tick() {
     if (state.breakUntil && Date.now() >= state.breakUntil) endBreak(false);
     if (state.lastFrame) broadcast(state.lastFrame.analysis, present);
   }
-  requestAnimationFrame(tick);
+}
+
+function scheduleTick() {
+  requestAnimationFrame(() => {
+    tick();
+    scheduleTick();
+  });
 }
 
 async function fillCameras() {
@@ -692,10 +683,10 @@ function bind() {
       localStorage.setItem("zuohao-baseline", JSON.stringify(state.baseline));
       api.saveBaseline(state.baseline);
       const cva = state.baseline.cva;
-      if (cva != null && cva < 48) toast("校准偏前倾", `这次颅椎角只有 ${cva.toFixed(0)}°。先坐正再校准。`);
-      else toast("已记录标准坐姿", `侧拍基准颅椎角 ${cva != null ? `${cva.toFixed(0)}°` : "已记下"}。`);
+      if (cva != null && cva < 48) toast("校准偏前倾", `这次耳–肩角只有 ${cva.toFixed(0)}°。先坐正再校准。`);
+      else toast("已记录标准坐姿", `侧拍基准耳–肩角 ${cva != null ? `${cva.toFixed(0)}°` : "已记下"}。`);
       pushEvent("完成坐姿校准");
-      els.coach.textContent = "校准完成。侧看耳朵离开肩膀正上方超过两秒就会提醒。";
+      els.coach.textContent = "校准完成。头相对这个姿势往前探超过两秒就会提醒。";
     } catch (err) {
       toast("校准没完成", err.message);
     }
@@ -806,7 +797,8 @@ async function boot() {
   applyMirror(null);
   applyForm();
   bind();
-  tick();
+  scheduleTick();
+  setInterval(tick, 200);
 
   if (
     !localStorage.getItem("zuohao-onboarded") &&

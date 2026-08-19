@@ -1,20 +1,67 @@
 {
   "name": "zuohao",
+  "productName": "好坐",
   "version": "1.0.0",
+  "private": true,
   "description": "好坐 ZuoHao — 桌面坐姿监测与久坐提醒",
-  "main": "electron/main.js",
-  "author": "ZuoHao",
+  "author": "kibuouo",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kibuouo/zuoHao.git"
+  },
+  "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
     "postinstall": "node scripts/ensure-electron.js",
     "icons": "node scripts/make-icon.js",
     "mcp": "node mcp/server.js",
-    "test:analyze": "node scripts/test-analyze.mjs"
+    "test:analyze": "node scripts/test-analyze.mjs",
+    "predist": "node scripts/make-icon.js",
+    "dist": "electron-builder --win nsis --x64 --publish never",
+    "app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-app.ps1"
+  },
+  "build": {
+    "appId": "com.zuohao.posture",
+    "asar": true,
+    "artifactName": "ZuoHao-Setup-${version}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "mcp/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "executableName": "ZuoHao",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "include": "build/installer.nsh",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "好坐",
+      "deleteAppDataOnUninstall": false
+    }
   },
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3"
   },
   "allowScripts": {}
 }

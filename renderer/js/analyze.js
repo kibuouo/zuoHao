@@ -1,11 +1,11 @@
-/** 好坐姿态分析。侧拍用耳/眼/口/肩/髋 + 派生颈点；前倾由颅椎角、耳–肩前移、下颌前伸和 3D 位移一起判。 */
+/** 好坐姿态分析。默认按斜侧 45° 机位：颈根取头底下的肩，前倾看相对校准的耳–肩和 3D 位移。 */
 
 export const CHECKS = {
   forwardHead: {
     id: "forwardHead",
     name: "脖子前倾",
     hint: "耳廓跑到肩峰前方，颈椎长时间悬臂",
-    fix: "下颌微收，后脑勺往上顶。侧看时耳朵回到肩膀正上方",
+    fix: "下颌微收，后脑勺往上顶。让耳朵回到头底下那侧肩膀的上方",
   },
   slouch: {
     id: "slouch",
@@ -242,51 +242,54 @@ function inferForwardSign(nose, ear, mouth, eye) {
   return sum < 0 ? -1 : 1;
 }
 
-function chooseSagittalShoulder(profile, ear, forwardSign, aspect, ambiguous) {
-  const selected = profile.shoulder;
-  const other = profile.farShoulder;
-  if (!ambiguous || !selected || !other || vis(other) < 0.18) {
-    return {
-      shoulder: selected,
-      farShoulder: other,
-      shoulderIdx: profile.idx.sh,
-      hip: profile.hip,
-      hipIdx: profile.idx.hip,
-      source: "profile",
-    };
-  }
+function sideIdx(side) {
+  return side === "left"
+    ? { ear: I.L_EAR, eye: I.L_EYE, mouth: I.L_MOUTH, sh: I.L_SH, elbow: I.L_ELBOW, hip: I.L_HIP }
+    : { ear: I.R_EAR, eye: I.R_EYE, mouth: I.R_MOUTH, sh: I.R_SH, elbow: I.R_ELBOW, hip: I.R_HIP };
+}
 
-  const neckH = Math.max(selected.y - ear.y, 0.04);
-  const selectedForward = ((ear.x - selected.x) * aspect * forwardSign) / neckH;
-  const otherForward = ((ear.x - other.x) * aspect * forwardSign) / neckH;
-  const selectedDistance = dist2(ear, selected) * aspect;
-  const otherDistance = dist2(ear, other) * aspect;
-  const otherVisible = vis(other) >= Math.max(0.2, vis(selected) * 0.6);
-  const selectedBehind = selectedForward < -0.12;
-  const otherIsForward = otherForward > -0.02;
-  const otherIsCloser = otherDistance <= selectedDistance * 1.18;
-
-  // In an oblique frame the visibility winner can be the shoulder on the
-  // wrong side of the neck. If it puts the ear far behind the shoulder while
-  // the other visible shoulder is under the ear, use the latter as the C7
-  // reference. This keeps a forced "side" setting usable for real 3/4 views.
-  if (otherVisible && selectedBehind && otherIsForward && otherIsCloser) {
-    return {
-      shoulder: other,
-      farShoulder: selected,
-      shoulderIdx: profile.farIdx.sh,
-      hip: profile.farHip,
-      hipIdx: profile.farIdx.hip,
-      source: "oblique-nearer",
-    };
+function chooseNeckAnchor(lm, face, facing, aspect, ambiguous) {
+  // 45° and true-side both see the anatomical profile opposite the facing
+  // direction: look left → right ear/shoulder, look right → left.
+  const side = facing === "left" ? "right" : "left";
+  const idx = sideIdx(side);
+  const farIdx = sideIdx(side === "left" ? "right" : "left");
+  const faceEar = face && (side === "left" ? face.lEar : face.rEar);
+  const ear =
+    vis(faceEar) >= 0.16 ? faceEar : vis(lm[idx.ear]) >= 0.16 ? lm[idx.ear] : vis(lm[farIdx.ear]) >= 0.16 ? lm[farIdx.ear] : lm[idx.ear];
+  let shoulder = vis(lm[idx.sh]) >= 0.18 ? lm[idx.sh] : vis(lm[farIdx.sh]) >= 0.18 ? lm[farIdx.sh] : lm[idx.sh];
+  let shoulderIdx = vis(lm[idx.sh]) >= 0.18 ? idx.sh : vis(lm[farIdx.sh]) >= 0.18 ? farIdx.sh : idx.sh;
+  let source = "profile-side";
+  const otherIdx = shoulderIdx === idx.sh ? farIdx.sh : idx.sh;
+  const other = lm[otherIdx];
+  if (ambiguous && other && vis(other) >= 0.18) {
+    const spanN = dist2(shoulder, other) * aspect;
+    const dx = Math.abs(ear.x - shoulder.x) * aspect;
+    const dxOther = Math.abs(ear.x - other.x) * aspect;
+    // Chair / background false positive: the profile-side point is isolated
+    // and far from the head. Snap to the remaining shoulder.
+    if (spanN > 0.46 && dx > 0.22 && dxOther < dx) {
+      shoulder = other;
+      shoulderIdx = otherIdx;
+      source = "under-head";
+    }
   }
+  const hip = vis(lm[idx.hip]) >= 0.14 ? lm[idx.hip] : vis(lm[farIdx.hip]) >= 0.14 ? lm[farIdx.hip] : null;
+  const hipIdx = vis(lm[idx.hip]) >= 0.14 ? idx.hip : vis(lm[farIdx.hip]) >= 0.14 ? farIdx.hip : null;
+  const eye = vis(lm[idx.eye]) >= 0.16 ? lm[idx.eye] : vis(lm[farIdx.eye]) >= 0.16 ? lm[farIdx.eye] : lm[I.NOSE];
   return {
-    shoulder: selected,
-    farShoulder: other,
-    shoulderIdx: profile.idx.sh,
-    hip: profile.hip,
-    hipIdx: profile.idx.hip,
-    source: "profile",
+    side,
+    idx,
+    farIdx,
+    ear,
+    earIdx: vis(faceEar) >= 0.16 || vis(lm[idx.ear]) >= 0.16 ? idx.ear : farIdx.ear,
+    shoulder,
+    farShoulder: lm[otherIdx],
+    shoulderIdx,
+    source,
+    hip,
+    hipIdx,
+    eye,
   };
 }
 
@@ -335,73 +338,46 @@ export function fuseFaceIntoPose(poseLm, faceLm) {
   return { landmarks: next, fused: true, extras };
 }
 
-function estimateCervical(ear, shoulder, farShoulder, chin, nose, forwardSign, aspect, useMidline = false) {
-  const anchor = useMidline && farShoulder && vis(farShoulder) >= 0.18 ? mid(shoulder, farShoulder) : shoulder;
-  const neckH = Math.max(anchor.y - ear.y, 0.04);
-  const earBehindSh = (ear.x - anchor.x) * -forwardSign;
-  let c7x;
-  if (useMidline) {
-    // With both shoulders visible, a single shoulder is the acromion, not
-    // the posterior midline of the neck. Keep C7 near the shoulder midpoint
-    // so it cannot jump onto the far shoulder or the chair in an oblique view.
-    c7x = anchor.x - forwardSign * 0.022;
-  } else if (earBehindSh > 0.03) {
-    c7x = anchor.x - forwardSign * Math.max(earBehindSh + 0.02, 0.1);
-  } else {
-    c7x = anchor.x - forwardSign * 0.022;
-  }
-
-  const c7y = clamp(ear.y + neckH * 0.72, ear.y + neckH * 0.58, anchor.y - 0.008);
-  const c7 = { x: c7x, y: c7y, z: ear.z, visibility: Math.max(vis(ear), vis(anchor)) };
-
-  const bow = -forwardSign * neckH * 0.028;
-  const lerp = (t, extraX = 0) => ({
-    x: ear.x * (1 - t) + c7.x * t + extraX,
-    y: ear.y * (1 - t) + c7.y * t,
-    z: (ear.z || 0) * (1 - t) + (c7.z || 0) * t,
-    visibility: c7.visibility,
-  });
-  return { c7, c3: lerp(0.28, bow * 0.45), c5: lerp(0.58, bow), cervical: lerp(0.58, bow) };
-}
-
 function sideSagittal(lm, aspect, world, face, ambiguous = false) {
-  const profile = pickProfile(lm);
+  const visProfile = pickProfile(lm);
   const collapsed = isHeadCollapsed(lm);
   const nose = (face && face.nose) || lm[I.NOSE];
-  const ear = (face && (profile.side === "left" ? face.lEar : face.rEar)) || profile.ear;
-  const forwardSign = inferForwardSign(nose, ear, profile.mouth, profile.eye);
+  const guessEar = (face && (visProfile.side === "left" ? face.lEar : face.rEar)) || visProfile.ear;
+  const forwardSign = inferForwardSign(nose, guessEar, visProfile.mouth, visProfile.eye);
   const facing = forwardSign < 0 ? "left" : "right";
 
-  const reference = chooseSagittalShoulder(profile, ear, forwardSign, aspect, ambiguous);
+  // True side: the visible silhouette. 45°: the anatomical profile the camera
+  // actually sees (look left → right ear/shoulder), not the near-camera chest.
+  const reference = ambiguous
+    ? chooseNeckAnchor(lm, face, facing, aspect, true)
+    : {
+        side: visProfile.side,
+        idx: visProfile.idx,
+        farIdx: visProfile.farIdx,
+        ear: guessEar,
+        earIdx: visProfile.idx.ear,
+        shoulder: visProfile.shoulder,
+        farShoulder: visProfile.farShoulder,
+        shoulderIdx: visProfile.idx.sh,
+        source: "profile",
+        hip: visProfile.hip,
+        hipIdx: visProfile.idx.hip,
+        eye: visProfile.eye,
+      };
+  const ear = reference.ear;
   const shoulder = reference.shoulder;
   const farShoulder = reference.farShoulder;
-  const shoulderSpan = farShoulder && vis(farShoulder) >= 0.18 ? dist2(shoulder, farShoulder) * aspect : Infinity;
-  // A very wide isolated "far shoulder" is often a chair/background false
-  // positive; do not let it move the C7 anchor into that background.
-  const useMidline = ambiguous && shoulderSpan <= 0.46;
 
   const neckH = Math.max(shoulder.y - ear.y, 0.04);
   const nearShX = sagX(shoulder, aspect);
 
-  const chinSrc = (face && face.chin) || profile.mouth || blend([nose, ear], [0.65, 0.35]);
+  const chinSrc = (face && face.chin) || visProfile.mouth || blend([nose, ear], [0.65, 0.35]);
   const chin = {
     x: chinSrc.x,
     y: Math.max(chinSrc.y, ear.y + neckH * 0.22),
     z: chinSrc.z,
     visibility: vis(chinSrc),
   };
-
-  const { c7, c3, c5, cervical } = estimateCervical(
-    ear,
-    shoulder,
-    farShoulder,
-    chin,
-    nose,
-    forwardSign,
-    aspect,
-    useMidline
-  );
-  const c7X = sagX(c7, aspect);
 
   const chest = {
     x: (shoulder.x + (farShoulder?.x || shoulder.x)) / 2,
@@ -415,14 +391,14 @@ function sideSagittal(lm, aspect, world, face, ambiguous = false) {
   const noseX = sagX(nose, aspect);
   const chinX = sagX(chin, aspect);
 
-  const rise = Math.max(c7.y - ear.y, 1e-4);
   const neckRise = Math.max(shoulder.y - ear.y, 1e-4);
-  const forward = (earX - c7X) * forwardSign;
-  const cva = clamp(deg(Math.atan2(rise, Math.max(forward, 0))), 15, 90);
+  const forward = (earX - shX) * forwardSign;
+  // Ear to the shoulder under the head, from horizontal. 90° = stacked.
+  const cva = clamp(deg(Math.atan2(neckRise, Math.max(forward, 0))), 15, 90);
   const earForward = ((earX - shX) * forwardSign) / neckRise;
   const chinForward = ((chinX - shX) * forwardSign) / neckRise;
   const chinPoke = ((noseX - earX) * forwardSign) / neckRise;
-  const forwardRatio = forward / rise;
+  const forwardRatio = forward / neckRise;
 
   let trunkAngle = 0;
   if (reference.hip) {
@@ -434,12 +410,12 @@ function sideSagittal(lm, aspect, world, face, ambiguous = false) {
 
   let worldEarForward = null;
   let worldChinForward = null;
-  if (world && world[profile.idx.ear] && world[reference.shoulderIdx]) {
-    const we = world[profile.idx.ear];
+  if (world && world[reference.earIdx] && world[reference.shoulderIdx]) {
+    const we = world[reference.earIdx];
     const ws = world[reference.shoulderIdx];
     worldEarForward = (we.x - ws.x) * forwardSign;
-    if (world[profile.idx.mouth]) {
-      worldChinForward = (world[profile.idx.mouth].x - ws.x) * forwardSign;
+    if (world[reference.idx.mouth]) {
+      worldChinForward = (world[reference.idx.mouth].x - ws.x) * forwardSign;
     }
   }
 
@@ -453,27 +429,22 @@ function sideSagittal(lm, aspect, world, face, ambiguous = false) {
     worldChinForward,
     trunkAngle,
     forward,
-    rise,
+    rise: neckRise,
     facing,
-    profileSide: profile.side,
+    profileSide: reference.side,
     ear,
-    eye: profile.eye,
-    mouth: profile.mouth,
+    eye: reference.eye,
+    mouth: visProfile.mouth,
     chin,
     shoulder,
     farShoulder,
     shoulderSource: reference.source,
     shoulderIdx: reference.shoulderIdx,
-    c7AnchorSource: useMidline ? "shoulder-midline" : reference.source,
-    c7,
-    c3,
-    c5,
-    cervical,
     chest,
     hip: reference.hip,
     hipIdx: reference.hipIdx,
     nose,
-    nearIdx: profile.idx,
+    nearIdx: reference.idx,
     headCollapsed: collapsed,
   };
 }
@@ -633,7 +604,6 @@ export function extractMetrics(lm, opts = {}) {
     nearIdx: sag.nearIdx,
     shoulderSource: sag.shoulderSource,
     shoulderIdx: sag.shoulderIdx,
-    c7AnchorSource: sag.c7AnchorSource,
     cva: sag.cva,
     forwardRatio: sag.forwardRatio,
     chinPoke: sag.chinPoke,
@@ -666,10 +636,6 @@ export function extractMetrics(lm, opts = {}) {
     shoulder,
     farShoulder: sag.farShoulder,
     headCollapsed: sag.headCollapsed,
-    c7: sag.c7,
-    c3: sag.c3,
-    c5: sag.c5,
-    cervical: sag.cervical,
     chest: sag.chest,
     hip: sag.hip || (hipsOk ? hipMid : null),
     nose,
@@ -736,8 +702,8 @@ function decideForwardHead(m, baseline, k, algo) {
   const baseCva = baselineMetric(baseline, "cva", "craniovertebral");
   if (baseCva != null && ambiguous) {
     // A forced side view is often actually a 3/4 view. In that case the
-    // absolute CVA is biased by camera angle, so judge the drop from the
-    // user's calibrated neutral pose instead of requiring CVA < 50°.
+    // absolute ear–shoulder angle is biased by camera angle, so judge the drop
+    // from the user's calibrated neutral pose instead of requiring < 50°.
     cvaWarn = Math.max(absWarn, baseCva - 10 * k.drop);
     cvaAlert = Math.max(absAlert, baseCva - 18 * k.drop);
   } else if (baseline && (baseline.view === "side" || baseline.view === "oblique") && baseCva != null) {
@@ -746,9 +712,13 @@ function decideForwardHead(m, baseline, k, algo) {
   }
 
   const cva = m.cva;
-  if (cva < algo.cvaHardAlert) hit = worse(hit, { severity: "alert", detail: `颅椎角 ${cva.toFixed(0)}°` });
-  else if (cva <= cvaAlert) hit = worse(hit, { severity: "alert", detail: `颅椎角 ${cva.toFixed(0)}°` });
-  else if (cva <= cvaWarn) hit = worse(hit, { severity: "warn", detail: `颅椎角 ${cva.toFixed(0)}°` });
+  // 45° frames cannot use an absolute "CVA < 50°" gate: the camera already
+  // shears ear vs acromion. Only judge the drop from calibration there.
+  if (!ambiguous && cva < algo.cvaHardAlert) hit = worse(hit, { severity: "alert", detail: `耳–肩角 ${cva.toFixed(0)}°` });
+  else if (!ambiguous || baseCva != null) {
+    if (cva <= cvaAlert) hit = worse(hit, { severity: "alert", detail: `耳–肩角 ${cva.toFixed(0)}°` });
+    else if (cva <= cvaWarn) hit = worse(hit, { severity: "warn", detail: `耳–肩角 ${cva.toFixed(0)}°` });
+  }
 
   let earWarn = algo.earFwdWarn * k.depth;
   let earAlert = algo.earFwdAlert * k.depth;
@@ -804,7 +774,7 @@ function decideForwardHead(m, baseline, k, algo) {
   }
 
   if (m.chinPoke > algo.pokeWarn && cva < algo.pokeCva) {
-    hit = worse(hit, { severity: "warn", detail: `下颌前探 · 颅椎角 ${cva.toFixed(0)}°` });
+    hit = worse(hit, { severity: "warn", detail: `下颌前探 · 耳–肩角 ${cva.toFixed(0)}°` });
   }
 
   return hit;
@@ -822,7 +792,7 @@ function decideFrontForwardHead(m, baseline, k, settings) {
   if (depthBad && (earBad || m.cva < 50 * (2 - k.angle))) {
     return {
       severity: m.headForwardDepth > depthLimit * 1.4 || m.cva < 40 ? "alert" : "warn",
-      detail: `颅椎角约 ${m.cva.toFixed(0)}°`,
+      detail: `耳–肩角约 ${m.cva.toFixed(0)}°`,
     };
   }
   if (worldBad && earBad) {

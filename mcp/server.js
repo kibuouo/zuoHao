@@ -96,7 +96,7 @@ const TOOLS = [
   },
   {
     name: "zuohao_get_snapshot",
-    description: "读取当前坐姿快照：颅椎角、前移、含胸角、头侧倾、高低肩、侧倾、视角、问题列表。",
+    description: "读取当前坐姿快照：耳–肩角、前移、含胸角、头侧倾、高低肩、侧倾、视角、问题列表。",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -139,13 +139,13 @@ const TOOLS = [
   },
   {
     name: "zuohao_get_algorithm",
-    description: "读取可热更新的算法阈值：颅椎角预警/报警、下巴前伸、躯干前倾、平滑系数。",
+    description: "读取可热更新的算法阈值：耳–肩角预警/报警、下巴前伸、躯干前倾、平滑系数。",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "zuohao_update_algorithm",
     description:
-      "热更新算法阈值。常用：cvaWarn(52)、cvaAlert(46)、earFwdWarn(0.24)、earFwdAlert(0.42)、worldFwdWarn(0.04)、smoothAlphaDown(0.48)。应用在运行时下一帧生效。",
+      "热更新算法阈值。常用：cvaWarn(52)、cvaAlert(46)（耳–肩角）、earFwdWarn(0.24)、earFwdAlert(0.42)、worldFwdWarn(0.04)、smoothAlphaDown(0.48)。应用在运行时下一帧生效。",
     inputSchema: {
       type: "object",
       properties: {
